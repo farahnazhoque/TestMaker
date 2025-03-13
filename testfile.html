@@ -67,29 +67,34 @@
             padding: 15px;
             background-color: #f5f7fa;
             border-radius: 5px;
-            margin-bottom: 15px;
+            margin-bottom: 20px;
             border-left: 4px solid #4285f4;
         }
         
         .option {
             display: flex;
-            align-items: center;
+            align-items: flex-start;
             margin: 10px 0;
-            padding: 5px;
+            padding: 10px;
+            border-radius: 4px;
         }
         
         .option:hover {
             background-color: #f0f0f0;
-            border-radius: 4px;
         }
         
         .option input {
             margin-right: 10px;
+            margin-top: 3px;
+        }
+        
+        .option-text {
+            flex: 1;
         }
         
         .result {
-            margin-top: 20px;
-            padding: 15px;
+            margin-top: 15px;
+            padding: 12px;
             border-radius: 5px;
             font-weight: bold;
         }
@@ -122,9 +127,59 @@
             text-align: center;
             font-size: 18px;
             margin-top: 20px;
-            padding: 10px;
+            padding: 15px;
             background-color: #e8f0fe;
             border-radius: 4px;
+        }
+        
+        .section-title {
+            font-weight: bold;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid #ddd;
+            color: #555;
+        }
+        
+        .controls {
+            display: flex;
+            justify-content: space-between;
+            margin: 15px 0;
+        }
+        
+        #formatHelp {
+            margin-top: 10px;
+            padding: 10px;
+            background-color: #f8f9fa;
+            border-radius: 4px;
+            font-size: 14px;
+            display: none;
+        }
+        
+        .show-help {
+            font-size: 14px;
+            color: #4285f4;
+            text-decoration: underline;
+            background: none;
+            border: none;
+            cursor: pointer;
+            padding: 5px;
+            margin-bottom: 10px;
+        }
+        
+        .loader {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #3498db;
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            animation: spin 1s linear infinite;
+            margin: 20px auto;
+            display: none;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
         }
     </style>
 </head>
@@ -134,22 +189,46 @@
     <div class="container">
         <div id="inputSection">
             <label for="questionInput">Paste Your MCQ Questions:</label>
-            <textarea id="questionInput" placeholder="Paste questions like: Which sampling rate is used for telephone audio signals?
+            <textarea id="questionInput" placeholder="Paste questions like:
+Which sampling rate is used for telephone audio signals?
 A. 44,100 samples/sec
 B. 8,000 samples/sec
 C. 16,000 samples/sec
-D. 22,050 samples/sec"></textarea>
+D. 22,050 samples/sec
+
+Or with parentheses:
+Which sampling rate is used for telephone audio signals?
+(A) 44,100 samples/sec
+(B) 8,000 samples/sec
+(C) 16,000 samples/sec
+(D) 22,050 samples/sec"></textarea>
             
-            <label for="answerKeyInput">Answer Key (e.g., 1B, 2A, 3D... or 1. B 2. C 3. D...):</label>
+            <button class="show-help" id="showHelp">Show format help</button>
+            <div id="formatHelp">
+                <p><strong>Supported formats:</strong></p>
+                <ul>
+                    <li>Questions with or without numbers (e.g., "1. Question" or just "Question")</li>
+                    <li>Question formats: "Question X: text" or just the question text ending with "?"</li>
+                    <li>Option formats: "A. text" or "(A) text" with or without extra spaces or indentation</li>
+                    <li>Section headers like "1. Audio Sampling and Quantization" are handled correctly</li>
+                    <li>Multiple questions per section are supported</li>
+                    <li>Nested questions under numbered sections are automatically numbered sequentially</li>
+                </ul>
+            </div>
+            
+            <label for="answerKeyInput">Answer Key (e.g., 1B, 2C, 3B... or 1. B 2. C 3. B...):</label>
             <textarea id="answerKeyInput" placeholder="Enter answer key in format: 1B, 2A, 3D... or 1. B 2. C 3. D..."></textarea>
             
+            <div class="loader" id="processingLoader"></div>
             <button id="parseButton">Parse Questions</button>
         </div>
         
         <div id="quizSection" class="hidden">
             <div id="questionContainer"></div>
-            <button id="checkAnswersButton">Check Answers</button>
-            <button id="resetButton">Reset</button>
+            <div class="controls">
+                <button id="checkAnswersButton">Check Answers</button>
+                <button id="resetButton">Reset</button>
+            </div>
             <div id="resultSummary" class="summary hidden"></div>
         </div>
     </div>
@@ -165,9 +244,18 @@ D. 22,050 samples/sec"></textarea>
             const inputSection = document.getElementById('inputSection');
             const quizSection = document.getElementById('quizSection');
             const resultSummary = document.getElementById('resultSummary');
+            const showHelpButton = document.getElementById('showHelp');
+            const formatHelp = document.getElementById('formatHelp');
+            const processingLoader = document.getElementById('processingLoader');
             
             let questions = [];
             let answerKey = {};
+            
+            // Toggle format help
+            showHelpButton.addEventListener('click', () => {
+                formatHelp.style.display = formatHelp.style.display === 'none' ? 'block' : 'none';
+                showHelpButton.textContent = formatHelp.style.display === 'none' ? 'Show format help' : 'Hide format help';
+            });
             
             // Parse questions from text input
             parseButton.addEventListener('click', () => {
@@ -177,145 +265,334 @@ D. 22,050 samples/sec"></textarea>
                     return;
                 }
                 
-                // Parse answer key - supporting both comma-separated and space-separated formats
-                const answerKeyText = answerKeyInput.value.trim();
-                if (answerKeyText) {
-                    // Try to detect the format
-                    if (answerKeyText.includes(',')) {
-                        // Comma-separated format: 1B, 2A, 3D
-                        const keyEntries = answerKeyText.split(',').map(entry => entry.trim());
-                        keyEntries.forEach(entry => {
-                            const match = entry.match(/(\d+)([A-D])/i);
-                            if (match) {
-                                const questionNum = parseInt(match[1]);
-                                const answer = match[2].toUpperCase();
-                                answerKey[questionNum] = answer;
+                // Show loader
+                processingLoader.style.display = 'block';
+                parseButton.disabled = true;
+                
+                // Clear previous questions
+                questions = [];
+                
+                // Use setTimeout to allow UI to update before processing
+                setTimeout(() => {
+                    try {
+                        // Parse answer key - supporting both comma-separated and space-separated formats
+                        const answerKeyText = answerKeyInput.value.trim();
+                        answerKey = {};
+                        
+                        if (answerKeyText) {
+                            // Try to detect the format
+                            if (answerKeyText.includes(',')) {
+                                // Comma-separated format: 1B, 2A, 3D
+                                const keyEntries = answerKeyText.split(',').map(entry => entry.trim());
+                                keyEntries.forEach(entry => {
+                                    const match = entry.match(/(\d+)([A-D])/i);
+                                    if (match) {
+                                        const questionNum = parseInt(match[1]);
+                                        const answer = match[2].toUpperCase();
+                                        answerKey[questionNum] = answer;
+                                    }
+                                });
+                            } else {
+                                // Space-separated format: 1. B 2. C 3. B
+                                const answerPattern = /(\d+)(?:\.|\)|\s)\s*([A-D])/g;
+                                let match;
+                                while ((match = answerPattern.exec(answerKeyText)) !== null) {
+                                    const questionNum = parseInt(match[1]);
+                                    const answer = match[2].toUpperCase();
+                                    answerKey[questionNum] = answer;
+                                }
                             }
-                        });
-                    } else {
-                        // Space-separated format: 1. B 2. C 3. B
-                        const answerPattern = /(\d+)(?:\.|\)|\s)\s*([A-D])/g;
-                        let match;
-                        while ((match = answerPattern.exec(answerKeyText)) !== null) {
-                            const questionNum = parseInt(match[1]);
-                            const answer = match[2].toUpperCase();
-                            answerKey[questionNum] = answer;
                         }
-                    }
-                }
-                
-                // Parse questions - improved to handle numbered and sectioned questions
-                // First, try to find question blocks by looking for patterns like "1. Question"
-                let currentQuestionNumber = 1;
-                const numberedQuestions = inputText.match(/(?:^|\n)\s*(?:\d+[\.)]\s*[^A-D\n][^\n]*\?)|(?:^|\n)\s*(?:[^A-D\n][^\n]*\?)/gm);
-                
-                if (numberedQuestions && numberedQuestions.length > 0) {
-                    // We found questions with or without section numbers
-                    numberedQuestions.forEach(questionBlock => {
-                        // Extract the question text and find its position in the original text
-                        const questionStart = inputText.indexOf(questionBlock);
-                        if (questionStart !== -1) {
-                            // Find the end of this question (start of next question or end of text)
-                            const nextQuestionStart = inputText.indexOf(numberedQuestions[numberedQuestions.indexOf(questionBlock) + 1], questionStart + 1);
-                            const questionEnd = nextQuestionStart !== -1 ? nextQuestionStart : inputText.length;
-                            const fullQuestionBlock = inputText.substring(questionStart, questionEnd);
+                        
+                        // First check if the text appears to be output from the quiz interface itself
+                        if (inputText.includes('MCQ Quiz Checker') && 
+                            (inputText.includes('Question 1:') || inputText.includes('Correct!') || 
+                             inputText.includes('Incorrect.') || inputText.includes('Score:'))) {
                             
-                            // Try to extract question number from the block
-                            const numMatch = questionBlock.match(/^\s*(\d+)[\.)]/) || questionBlock.match(/(\d+)[\.)].*\?/);
-                            const questionNum = numMatch ? parseInt(numMatch[1]) : currentQuestionNumber;
-                            
-                            parseQuestion(fullQuestionBlock, questionNum);
-                            currentQuestionNumber++;
+                            // This appears to be output from the quiz interface
+                            parseQuizOutput(inputText);
+                        } else {
+                            // This is likely raw question data
+                            parseRawQuestions(inputText);
                         }
-                    });
-                } else {
-                    // Fallback to splitting by blank lines
-                    const questionBlocks = inputText.split(/\n\s*\n|\r\n\s*\r\n/).filter(block => block.trim());
-                    
-                    if (questionBlocks.length === 0) {
-                        // Try to parse as a single question
-                        parseQuestion(inputText, 1);
-                    } else {
-                        questionBlocks.forEach((block, index) => {
-                            parseQuestion(block, index + 1);
-                        });
+                        
+                        if (questions.length > 0) {
+                            renderQuestions();
+                            inputSection.classList.add('hidden');
+                            quizSection.classList.remove('hidden');
+                        } else {
+                            alert('No valid questions found. Please check your input format.');
+                        }
+                    } catch (error) {
+                        console.error('Error parsing questions:', error);
+                        alert('Error parsing questions. Please check your input format.');
+                    } finally {
+                        // Hide loader
+                        processingLoader.style.display = 'none';
+                        parseButton.disabled = false;
                     }
-                }
-                
-                if (questions.length > 0) {
-                    renderQuestions();
-                    inputSection.classList.add('hidden');
-                    quizSection.classList.remove('hidden');
-                } else {
-                    alert('No valid questions found. Please check your input format.');
-                }
+                }, 50);
             });
             
-            function parseQuestion(text, questionNumber) {
-                // Improved regex to match question text (ending with a question mark) followed by options
-                // This handles indented questions better
-                const questionMatch = text.match(/\s*([^A-D\n][^\n]*\?)/);
-                if (!questionMatch) return;
+            function parseQuizOutput(text) {
+                // Extract questions that follow the pattern "Question X: [text]"
+                const questionRegex = /Question\s+(\d+):\s+([^?]+\?)/g;
+                let match;
+                let questionNumber = 1;
                 
-                const questionText = questionMatch[1].trim();
-                const optionsText = text.substring(text.indexOf(questionMatch[0]) + questionMatch[0].length).trim();
+                while ((match = questionRegex.exec(text)) !== null) {
+                    const qNum = parseInt(match[1]);
+                    const qText = match[2].trim();
+                    
+                    // Find the next question start or end of text
+                    const currentPos = match.index + match[0].length;
+                    const nextQuestionMatch = text.slice(currentPos).match(/Question\s+\d+:/);
+                    const nextQuestionPos = nextQuestionMatch 
+                        ? currentPos + nextQuestionMatch.index 
+                        : text.length;
+                    
+                    // Extract the options section
+                    const optionsSection = text.slice(currentPos, nextQuestionPos);
+                    
+                    // Parse options (A. text format)
+                    const optionRegex = /([A-D])\.\s+([^\n]+)/g;
+                    let optMatch;
+                    let options = [];
+                    
+                    while ((optMatch = optionRegex.exec(optionsSection)) !== null) {
+                        options.push({
+                            letter: optMatch[1],
+                            text: optMatch[2].trim()
+                        });
+                    }
+                    
+                    if (options.length > 0) {
+                        questions.push({
+                            number: qNum,
+                            text: qText,
+                            options: options
+                        });
+                    }
+                    
+                    questionNumber++;
+                }
+            }
+            
+            function parseRawQuestions(inputText) {
+                // Add automatic question numbering
+                let globalQuestionCounter = 1;
                 
-                // Match options in format A. Option text or (A) Option text
-                const optionRegex = /\s*([A-D])\.\s*([^\n]*(?:\n(?!\s*[A-D]\.).*)*)/g;
-                
-                let options = [];
+                // Strategy 1: Try to find labeled questions (Question 1:, etc.)
+                const labeledQuestionRegex = /(?:^|\n)\s*(?:Question\s+)?(\d+)[\.:]?\s+([^A-D\n][^\n]*\?)/gm;
+                let labeledQuestions = [];
                 let match;
                 
-                while ((match = optionRegex.exec(optionsText)) !== null) {
-                    const optionLetter = match[1];
-                    const optionText = match[2].trim();
-                    options.push({
-                        letter: optionLetter,
-                        text: optionText
+                while ((match = labeledQuestionRegex.exec(inputText)) !== null) {
+                    labeledQuestions.push({
+                        number: parseInt(match[1]),
+                        text: match[2].trim(),
+                        position: match.index
                     });
                 }
                 
-                if (options.length > 0) {
-                    questions.push({
-                        number: questionNumber,
-                        text: questionText,
-                        options: options
-                    });
+                // Strategy 2: Try to find unlabeled questions (ending with ?)
+                const unlabeledQuestionRegex = /(?:^|\n)\s*([^A-D0-9\n][^\n]*\?)/gm;
+                let unlabeledQuestions = [];
+                let qNumber = globalQuestionCounter;
+                
+                if (labeledQuestions.length === 0) {
+                    while ((match = unlabeledQuestionRegex.exec(inputText)) !== null) {
+                        // Skip if this is part of a section header
+                        const previousText = inputText.substring(Math.max(0, match.index - 30), match.index);
+                        if (!previousText.match(/\d+\.\s+[A-Z][a-z]+/)) {
+                            unlabeledQuestions.push({
+                                number: qNumber++,
+                                text: match[1].trim(),
+                                position: match.index
+                            });
+                        }
+                    }
+                }
+                
+                // Use the strategy that found questions
+                const questionList = labeledQuestions.length > 0 ? labeledQuestions : unlabeledQuestions;
+                
+                // Process each question to find its options
+                for (let i = 0; i < questionList.length; i++) {
+                    const currentQ = questionList[i];
+                    const nextQ = i < questionList.length - 1 ? questionList[i + 1] : null;
+                    
+                    // Find where this question ends (at the start of the next question or end of text)
+                    const questionEndPos = nextQ ? nextQ.position : inputText.length;
+                    const questionSection = inputText.substring(currentQ.position, questionEndPos);
+                    
+                    // Parse options (A. text format OR (A) format with possible line breaks)
+                    const optionRegex = /\s*(?:\(([A-D])\)|([A-D])\.)\s*([^\n]*(?:\n(?![\s]*(?:\([A-D]\)|[A-D]\.)|(?:\d+\.)|(?:Question)).*)*)/g;
+                    let optMatch;
+                    let options = [];
+                    
+                    while ((optMatch = optionRegex.exec(questionSection)) !== null) {
+                        const letterOption = optMatch[1] || optMatch[2]; // Either from (A) or A.
+                        const textOption = optMatch[3] || optMatch[2];   // Text content
+                        
+                        options.push({
+                            letter: letterOption,
+                            text: textOption.trim().replace(/\n/g, ' ')
+                        });
+                    }
+                    
+                    // Only add if we found options
+                    if (options.length > 0) {
+                        questions.push({
+                            number: currentQ.number,
+                            text: currentQ.text,
+                            options: options
+                        });
+                    }
+                }
+                
+                // If still no questions found, try one more approach: look for section headers and questions
+                if (questions.length === 0) {
+                    // Split by potential section headers (e.g., "1. Audio Sampling and Quantization")
+                    const sectionHeaderRegex = /(?:^|\n)\s*(\d+)\.\s+([A-Z][^A-D0-9\n]*[a-z])\s*(?:\n|$)/g;
+                    let sections = [];
+                    let secMatch;
+                    
+                    while ((secMatch = sectionHeaderRegex.exec(inputText)) !== null) {
+                        sections.push({
+                            number: parseInt(secMatch[1]),
+                            title: secMatch[2].trim(),
+                            position: secMatch.index
+                        });
+                    }
+                    
+                    // Process each section
+                    for (let i = 0; i < sections.length; i++) {
+                        const currentSection = sections[i];
+                        const nextSection = i < sections.length - 1 ? sections[i + 1] : null;
+                        
+                        // Find where this section ends
+                        const sectionEndPos = nextSection ? nextSection.position : inputText.length;
+                        const sectionText = inputText.substring(currentSection.position, sectionEndPos);
+                        
+                        // Find questions within this section (ending with ?)
+                        const sectionQuestionRegex = /(?:^|\n)\s*([^A-D0-9\n][^\n]*\?)/gm;
+                        let qMatch;
+                        let questionNum = 1;
+                        
+                        while ((qMatch = sectionQuestionRegex.exec(sectionText)) !== null) {
+                            const qText = qMatch[1].trim();
+                            const qPosition = currentSection.position + qMatch.index;
+                            
+                            // Find the next question in this section or the end of the section
+                            const nextQMatch = sectionText.slice(qMatch.index + qMatch[0].length).match(/(?:^|\n)\s*([^A-D0-9\n][^\n]*\?)/m);
+                            const nextQPosition = nextQMatch 
+                                ? qPosition + qMatch[0].length + nextQMatch.index 
+                                : sectionEndPos;
+                            
+                            // Extract options for this question
+                            const questionSection = inputText.substring(qPosition, nextQPosition);
+                            
+                            // Parse options (both A. and (A) formats)
+                            const optionRegex = /\s*(?:\(([A-D])\)|([A-D])\.)\s*([^\n]*(?:\n(?![\s]*(?:\([A-D]\)|[A-D]\.)|(?:\d+\.)|(?:Question)).*)*)/g;
+                            let optMatch;
+                            let options = [];
+                            
+                            while ((optMatch = optionRegex.exec(questionSection)) !== null) {
+                                const letterOption = optMatch[1] || optMatch[2]; // Either from (A) or A.
+                                const textOption = optMatch[3] || optMatch[2];   // Text content
+                                
+                                options.push({
+                                    letter: letterOption,
+                                    text: textOption.trim().replace(/\n/g, ' ')
+                                });
+                            }
+                            
+                            // If we found options, add the question
+                            if (options.length > 0) {
+                                questions.push({
+                                    number: questionNum++,
+                                    sectionNumber: currentSection.number,
+                                    text: qText,
+                                    options: options
+                                });
+                                globalQuestionCounter++;
+                            }
+                        }
+                    }
                 }
             }
             
             function renderQuestions() {
                 questionContainer.innerHTML = '';
                 
+                // Sort questions by number
+                questions.sort((a, b) => a.number - b.number);
+                
+                // Group questions by section if they have section numbers
+                const questionsBySections = {};
+                let hasSections = false;
+                
                 questions.forEach(question => {
-                    const questionDiv = document.createElement('div');
-                    questionDiv.className = 'question';
-                    
-                    questionDiv.innerHTML = `
-                        <div><strong>Question ${question.number}:</strong> ${question.text}</div>
-                        <div class="options">
-                            ${question.options.map(option => `
-                                <div class="option">
-                                    <input type="checkbox" id="q${question.number}option${option.letter}" name="q${question.number}" value="${option.letter}">
+                    if (question.sectionNumber) {
+                        hasSections = true;
+                        if (!questionsBySections[question.sectionNumber]) {
+                            questionsBySections[question.sectionNumber] = [];
+                        }
+                        questionsBySections[question.sectionNumber].push(question);
+                    }
+                });
+                
+                if (hasSections) {
+                    // Render by sections
+                    Object.keys(questionsBySections).sort((a, b) => parseInt(a) - parseInt(b)).forEach(sectionNumber => {
+                        const sectionTitle = document.createElement('div');
+                        sectionTitle.className = 'section-title';
+                        sectionTitle.textContent = `Section ${sectionNumber}`;
+                        questionContainer.appendChild(sectionTitle);
+                        
+                        questionsBySections[sectionNumber].forEach(question => {
+                            renderQuestionElement(question);
+                        });
+                    });
+                } else {
+                    // Render all questions sequentially
+                    questions.forEach(question => {
+                        renderQuestionElement(question);
+                    });
+                }
+            }
+            
+            function renderQuestionElement(question) {
+                const questionDiv = document.createElement('div');
+                questionDiv.className = 'question';
+                
+                questionDiv.innerHTML = `
+                    <div><strong>Question ${question.number}:</strong> ${question.text}</div>
+                    <div class="options">
+                        ${question.options.map(option => `
+                            <div class="option">
+                                <input type="checkbox" id="q${question.number}option${option.letter}" name="q${question.number}" value="${option.letter}">
+                                <div class="option-text">
                                     <label for="q${question.number}option${option.letter}">${option.letter}. ${option.text}</label>
                                 </div>
-                            `).join('')}
-                        </div>
-                        <div class="result hidden" id="result${question.number}"></div>
-                    `;
-                    
-                    questionContainer.appendChild(questionDiv);
-                    
-                    // Add event listeners to make options exclusive for each question
-                    const checkboxes = questionDiv.querySelectorAll('input[type="checkbox"]');
-                    checkboxes.forEach(checkbox => {
-                        checkbox.addEventListener('change', function() {
-                            if (this.checked) {
-                                checkboxes.forEach(cb => {
-                                    if (cb !== this) cb.checked = false;
-                                });
-                            }
-                        });
+                            </div>
+                        `).join('')}
+                    </div>
+                    <div class="result hidden" id="result${question.number}"></div>
+                `;
+                
+                questionContainer.appendChild(questionDiv);
+                
+                // Add event listeners to make options exclusive for each question
+                const checkboxes = questionDiv.querySelectorAll('input[type="checkbox"]');
+                checkboxes.forEach(checkbox => {
+                    checkbox.addEventListener('change', function() {
+                        if (this.checked) {
+                            checkboxes.forEach(cb => {
+                                if (cb !== this) cb.checked = false;
+                            });
+                        }
                     });
                 });
             }
@@ -324,6 +601,7 @@ D. 22,050 samples/sec"></textarea>
             checkAnswersButton.addEventListener('click', () => {
                 let correct = 0;
                 let total = questions.length;
+                let attempted = 0;
                 
                 questions.forEach(question => {
                     const resultDiv = document.getElementById(`result${question.number}`);
@@ -332,7 +610,7 @@ D. 22,050 samples/sec"></textarea>
                     
                     // Clear previous results
                     resultDiv.classList.remove('correct', 'incorrect', 'hidden');
-                    document.querySelectorAll(`.question:nth-child(${question.number}) .option`).forEach(opt => {
+                    document.querySelectorAll(`.question:nth-of-type(${question.number}) .option`).forEach(opt => {
                         opt.classList.remove('correct-answer', 'wrong-answer');
                     });
                     
@@ -342,6 +620,7 @@ D. 22,050 samples/sec"></textarea>
                         return;
                     }
                     
+                    attempted++;
                     const userAnswer = selectedOption.value;
                     
                     if (correctAnswer) {
@@ -351,18 +630,18 @@ D. 22,050 samples/sec"></textarea>
                             correct++;
                             
                             // Highlight correct answer
-                            const optionDiv = document.getElementById(`q${question.number}option${userAnswer}`).parentNode;
-                            optionDiv.classList.add('correct-answer');
+                            selectedOption.closest('.option').classList.add('correct-answer');
                         } else {
                             resultDiv.textContent = `Incorrect. The correct answer is ${correctAnswer}.`;
                             resultDiv.className = 'result incorrect';
                             
                             // Highlight wrong and correct answers
-                            const selectedOptionDiv = document.getElementById(`q${question.number}option${userAnswer}`).parentNode;
-                            selectedOptionDiv.classList.add('wrong-answer');
+                            selectedOption.closest('.option').classList.add('wrong-answer');
                             
-                            const correctOptionDiv = document.getElementById(`q${question.number}option${correctAnswer}`).parentNode;
-                            correctOptionDiv.classList.add('correct-answer');
+                            const correctOptionEl = document.getElementById(`q${question.number}option${correctAnswer}`);
+                            if (correctOptionEl) {
+                                correctOptionEl.closest('.option').classList.add('correct-answer');
+                            }
                         }
                     } else {
                         resultDiv.textContent = 'No answer key provided for this question';
@@ -371,12 +650,15 @@ D. 22,050 samples/sec"></textarea>
                 });
                 
                 // Show summary
+                resultSummary.classList.remove('hidden');
                 if (Object.keys(answerKey).length > 0) {
-                    resultSummary.textContent = `Score: ${correct}/${total} (${Math.round(correct/total*100)}%)`;
-                    resultSummary.classList.remove('hidden');
+                    if (attempted === 0) {
+                        resultSummary.textContent = 'Please select answers for at least one question.';
+                    } else {
+                        resultSummary.textContent = `Score: ${correct}/${attempted} (${Math.round(correct/attempted*100)}%)`;
+                    }
                 } else {
                     resultSummary.textContent = 'No answer key provided for evaluation';
-                    resultSummary.classList.remove('hidden');
                 }
             });
             
