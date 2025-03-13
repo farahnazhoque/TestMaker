@@ -140,8 +140,8 @@ B. 8,000 samples/sec
 C. 16,000 samples/sec
 D. 22,050 samples/sec"></textarea>
             
-            <label for="answerKeyInput">Answer Key (e.g., 1B, 2A, 3D...):</label>
-            <textarea id="answerKeyInput" placeholder="Enter answer key in format: 1B, 2A, 3D..."></textarea>
+            <label for="answerKeyInput">Answer Key (e.g., 1B, 2A, 3D... or 1. B 2. C 3. D...):</label>
+            <textarea id="answerKeyInput" placeholder="Enter answer key in format: 1B, 2A, 3D... or 1. B 2. C 3. D..."></textarea>
             
             <button id="parseButton">Parse Questions</button>
         </div>
@@ -177,30 +177,69 @@ D. 22,050 samples/sec"></textarea>
                     return;
                 }
                 
-                // Parse answer key
+                // Parse answer key - supporting both comma-separated and space-separated formats
                 const answerKeyText = answerKeyInput.value.trim();
                 if (answerKeyText) {
-                    const keyEntries = answerKeyText.split(',').map(entry => entry.trim());
-                    keyEntries.forEach(entry => {
-                        const match = entry.match(/(\d+)([A-D])/i);
-                        if (match) {
+                    // Try to detect the format
+                    if (answerKeyText.includes(',')) {
+                        // Comma-separated format: 1B, 2A, 3D
+                        const keyEntries = answerKeyText.split(',').map(entry => entry.trim());
+                        keyEntries.forEach(entry => {
+                            const match = entry.match(/(\d+)([A-D])/i);
+                            if (match) {
+                                const questionNum = parseInt(match[1]);
+                                const answer = match[2].toUpperCase();
+                                answerKey[questionNum] = answer;
+                            }
+                        });
+                    } else {
+                        // Space-separated format: 1. B 2. C 3. B
+                        const answerPattern = /(\d+)(?:\.|\)|\s)\s*([A-D])/g;
+                        let match;
+                        while ((match = answerPattern.exec(answerKeyText)) !== null) {
                             const questionNum = parseInt(match[1]);
                             const answer = match[2].toUpperCase();
                             answerKey[questionNum] = answer;
                         }
-                    });
+                    }
                 }
                 
-                // Parse questions
-                const questionBlocks = inputText.split(/\n\s*\n|\r\n\s*\r\n/).filter(block => block.trim());
+                // Parse questions - improved to handle numbered and sectioned questions
+                // First, try to find question blocks by looking for patterns like "1. Question"
+                let currentQuestionNumber = 1;
+                const numberedQuestions = inputText.match(/(?:^|\n)\s*(?:\d+[\.)]\s*[^A-D\n][^\n]*\?)|(?:^|\n)\s*(?:[^A-D\n][^\n]*\?)/gm);
                 
-                if (questionBlocks.length === 0) {
-                    // Try to parse as a single question
-                    parseQuestion(inputText, 1);
-                } else {
-                    questionBlocks.forEach((block, index) => {
-                        parseQuestion(block, index + 1);
+                if (numberedQuestions && numberedQuestions.length > 0) {
+                    // We found questions with or without section numbers
+                    numberedQuestions.forEach(questionBlock => {
+                        // Extract the question text and find its position in the original text
+                        const questionStart = inputText.indexOf(questionBlock);
+                        if (questionStart !== -1) {
+                            // Find the end of this question (start of next question or end of text)
+                            const nextQuestionStart = inputText.indexOf(numberedQuestions[numberedQuestions.indexOf(questionBlock) + 1], questionStart + 1);
+                            const questionEnd = nextQuestionStart !== -1 ? nextQuestionStart : inputText.length;
+                            const fullQuestionBlock = inputText.substring(questionStart, questionEnd);
+                            
+                            // Try to extract question number from the block
+                            const numMatch = questionBlock.match(/^\s*(\d+)[\.)]/) || questionBlock.match(/(\d+)[\.)].*\?/);
+                            const questionNum = numMatch ? parseInt(numMatch[1]) : currentQuestionNumber;
+                            
+                            parseQuestion(fullQuestionBlock, questionNum);
+                            currentQuestionNumber++;
+                        }
                     });
+                } else {
+                    // Fallback to splitting by blank lines
+                    const questionBlocks = inputText.split(/\n\s*\n|\r\n\s*\r\n/).filter(block => block.trim());
+                    
+                    if (questionBlocks.length === 0) {
+                        // Try to parse as a single question
+                        parseQuestion(inputText, 1);
+                    } else {
+                        questionBlocks.forEach((block, index) => {
+                            parseQuestion(block, index + 1);
+                        });
+                    }
                 }
                 
                 if (questions.length > 0) {
@@ -213,25 +252,26 @@ D. 22,050 samples/sec"></textarea>
             });
             
             function parseQuestion(text, questionNumber) {
-                // Regex to match question text followed by options
-                const questionMatch = text.match(/(.+?)(?=[A-D]\.|\([A-D]\))/s);
+                // Improved regex to match question text (ending with a question mark) followed by options
+                // This handles indented questions better
+                const questionMatch = text.match(/\s*([^A-D\n][^\n]*\?)/);
                 if (!questionMatch) return;
                 
                 const questionText = questionMatch[1].trim();
-                const optionsText = text.substring(questionMatch[0].length).trim();
+                const optionsText = text.substring(text.indexOf(questionMatch[0]) + questionMatch[0].length).trim();
                 
                 // Match options in format A. Option text or (A) Option text
-                const optionRegex = /([A-D])\.|\(([A-D])\)([^\(A-D\.](?:(?![A-D]\.|\([A-D]\)).)*)/g;
+                const optionRegex = /\s*([A-D])\.\s*([^\n]*(?:\n(?!\s*[A-D]\.).*)*)/g;
                 
                 let options = [];
                 let match;
                 
                 while ((match = optionRegex.exec(optionsText)) !== null) {
-                    const optionLetter = match[1] || match[2];
-                    const optionText = match[3] || match[0].substring(match[0].indexOf(' ') + 1);
+                    const optionLetter = match[1];
+                    const optionText = match[2].trim();
                     options.push({
                         letter: optionLetter,
-                        text: optionText.trim()
+                        text: optionText
                     });
                 }
                 
