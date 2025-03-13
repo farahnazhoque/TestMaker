@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MCQ Quiz Checker</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f9f9f9;
+        }
+        
+        h1 {
+            color: #333;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        
+        .container {
+            background-color: white;
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        }
+        
+        textarea {
+            width: 100%;
+            min-height: 150px;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            resize: vertical;
+            margin-bottom: 15px;
+            font-family: inherit;
+        }
+        
+        label {
+            font-weight: bold;
+            display: block;
+            margin-bottom: 8px;
+        }
+        
+        button {
+            background-color: #4285f4;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            margin: 10px 5px;
+            transition: background-color 0.3s;
+        }
+        
+        button:hover {
+            background-color: #2b68d8;
+        }
+        
+        #questionContainer {
+            margin-top: 20px;
+        }
+        
+        .question {
+            padding: 15px;
+            background-color: #f5f7fa;
+            border-radius: 5px;
+            margin-bottom: 15px;
+            border-left: 4px solid #4285f4;
+        }
+        
+        .option {
+            display: flex;
+            align-items: center;
+            margin: 10px 0;
+            padding: 5px;
+        }
+        
+        .option:hover {
+            background-color: #f0f0f0;
+            border-radius: 4px;
+        }
+        
+        .option input {
+            margin-right: 10px;
+        }
+        
+        .result {
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 5px;
+            font-weight: bold;
+        }
+        
+        .correct {
+            background-color: #d4edda;
+            color: #155724;
+        }
+        
+        .incorrect {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+        
+        .option.correct-answer {
+            background-color: #d4edda;
+            border-radius: 4px;
+        }
+        
+        .option.wrong-answer {
+            background-color: #f8d7da;
+            border-radius: 4px;
+        }
+        
+        .hidden {
+            display: none;
+        }
+        
+        .summary {
+            text-align: center;
+            font-size: 18px;
+            margin-top: 20px;
+            padding: 10px;
+            background-color: #e8f0fe;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body>
+    <h1>MCQ Quiz Checker</h1>
+    
+    <div class="container">
+        <div id="inputSection">
+            <label for="questionInput">Paste Your MCQ Questions:</label>
+            <textarea id="questionInput" placeholder="Paste questions like: Which sampling rate is used for telephone audio signals?
+A. 44,100 samples/sec
+B. 8,000 samples/sec
+C. 16,000 samples/sec
+D. 22,050 samples/sec"></textarea>
+            
+            <label for="answerKeyInput">Answer Key (e.g., 1B, 2A, 3D...):</label>
+            <textarea id="answerKeyInput" placeholder="Enter answer key in format: 1B, 2A, 3D..."></textarea>
+            
+            <button id="parseButton">Parse Questions</button>
+        </div>
+        
+        <div id="quizSection" class="hidden">
+            <div id="questionContainer"></div>
+            <button id="checkAnswersButton">Check Answers</button>
+            <button id="resetButton">Reset</button>
+            <div id="resultSummary" class="summary hidden"></div>
+        </div>
+    </div>
+    
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const parseButton = document.getElementById('parseButton');
+            const checkAnswersButton = document.getElementById('checkAnswersButton');
+            const resetButton = document.getElementById('resetButton');
+            const questionInput = document.getElementById('questionInput');
+            const answerKeyInput = document.getElementById('answerKeyInput');
+            const questionContainer = document.getElementById('questionContainer');
+            const inputSection = document.getElementById('inputSection');
+            const quizSection = document.getElementById('quizSection');
+            const resultSummary = document.getElementById('resultSummary');
+            
+            let questions = [];
+            let answerKey = {};
+            
+            // Parse questions from text input
+            parseButton.addEventListener('click', () => {
+                const inputText = questionInput.value.trim();
+                if (!inputText) {
+                    alert('Please paste MCQ questions first!');
+                    return;
+                }
+                
+                // Parse answer key
+                const answerKeyText = answerKeyInput.value.trim();
+                if (answerKeyText) {
+                    const keyEntries = answerKeyText.split(',').map(entry => entry.trim());
+                    keyEntries.forEach(entry => {
+                        const match = entry.match(/(\d+)([A-D])/i);
+                        if (match) {
+                            const questionNum = parseInt(match[1]);
+                            const answer = match[2].toUpperCase();
+                            answerKey[questionNum] = answer;
+                        }
+                    });
+                }
+                
+                // Parse questions
+                const questionBlocks = inputText.split(/\n\s*\n|\r\n\s*\r\n/).filter(block => block.trim());
+                
+                if (questionBlocks.length === 0) {
+                    // Try to parse as a single question
+                    parseQuestion(inputText, 1);
+                } else {
+                    questionBlocks.forEach((block, index) => {
+                        parseQuestion(block, index + 1);
+                    });
+                }
+                
+                if (questions.length > 0) {
+                    renderQuestions();
+                    inputSection.classList.add('hidden');
+                    quizSection.classList.remove('hidden');
+                } else {
+                    alert('No valid questions found. Please check your input format.');
+                }
+            });
+            
+            function parseQuestion(text, questionNumber) {
+                // Regex to match question text followed by options
+                const questionMatch = text.match(/(.+?)(?=[A-D]\.|\([A-D]\))/s);
+                if (!questionMatch) return;
+                
+                const questionText = questionMatch[1].trim();
+                const optionsText = text.substring(questionMatch[0].length).trim();
+                
+                // Match options in format A. Option text or (A) Option text
+                const optionRegex = /([A-D])\.|\(([A-D])\)([^\(A-D\.](?:(?![A-D]\.|\([A-D]\)).)*)/g;
+                
+                let options = [];
+                let match;
+                
+                while ((match = optionRegex.exec(optionsText)) !== null) {
+                    const optionLetter = match[1] || match[2];
+                    const optionText = match[3] || match[0].substring(match[0].indexOf(' ') + 1);
+                    options.push({
+                        letter: optionLetter,
+                        text: optionText.trim()
+                    });
+                }
+                
+                if (options.length > 0) {
+                    questions.push({
+                        number: questionNumber,
+                        text: questionText,
+                        options: options
+                    });
+                }
+            }
+            
+            function renderQuestions() {
+                questionContainer.innerHTML = '';
+                
+                questions.forEach(question => {
+                    const questionDiv = document.createElement('div');
+                    questionDiv.className = 'question';
+                    
+                    questionDiv.innerHTML = `
+                        <div><strong>Question ${question.number}:</strong> ${question.text}</div>
+                        <div class="options">
+                            ${question.options.map(option => `
+                                <div class="option">
+                                    <input type="checkbox" id="q${question.number}option${option.letter}" name="q${question.number}" value="${option.letter}">
+                                    <label for="q${question.number}option${option.letter}">${option.letter}. ${option.text}</label>
+                                </div>
+                            `).join('')}
+                        </div>
+                        <div class="result hidden" id="result${question.number}"></div>
+                    `;
+                    
+                    questionContainer.appendChild(questionDiv);
+                    
+                    // Add event listeners to make options exclusive for each question
+                    const checkboxes = questionDiv.querySelectorAll('input[type="checkbox"]');
+                    checkboxes.forEach(checkbox => {
+                        checkbox.addEventListener('change', function() {
+                            if (this.checked) {
+                                checkboxes.forEach(cb => {
+                                    if (cb !== this) cb.checked = false;
+                                });
+                            }
+                        });
+                    });
+                });
+            }
+            
+            // Check answers
+            checkAnswersButton.addEventListener('click', () => {
+                let correct = 0;
+                let total = questions.length;
+                
+                questions.forEach(question => {
+                    const resultDiv = document.getElementById(`result${question.number}`);
+                    const selectedOption = document.querySelector(`input[name="q${question.number}"]:checked`);
+                    const correctAnswer = answerKey[question.number];
+                    
+                    // Clear previous results
+                    resultDiv.classList.remove('correct', 'incorrect', 'hidden');
+                    document.querySelectorAll(`.question:nth-child(${question.number}) .option`).forEach(opt => {
+                        opt.classList.remove('correct-answer', 'wrong-answer');
+                    });
+                    
+                    if (!selectedOption) {
+                        resultDiv.textContent = 'No answer selected';
+                        resultDiv.className = 'result incorrect';
+                        return;
+                    }
+                    
+                    const userAnswer = selectedOption.value;
+                    
+                    if (correctAnswer) {
+                        if (userAnswer === correctAnswer) {
+                            resultDiv.textContent = 'Correct!';
+                            resultDiv.className = 'result correct';
+                            correct++;
+                            
+                            // Highlight correct answer
+                            const optionDiv = document.getElementById(`q${question.number}option${userAnswer}`).parentNode;
+                            optionDiv.classList.add('correct-answer');
+                        } else {
+                            resultDiv.textContent = `Incorrect. The correct answer is ${correctAnswer}.`;
+                            resultDiv.className = 'result incorrect';
+                            
+                            // Highlight wrong and correct answers
+                            const selectedOptionDiv = document.getElementById(`q${question.number}option${userAnswer}`).parentNode;
+                            selectedOptionDiv.classList.add('wrong-answer');
+                            
+                            const correctOptionDiv = document.getElementById(`q${question.number}option${correctAnswer}`).parentNode;
+                            correctOptionDiv.classList.add('correct-answer');
+                        }
+                    } else {
+                        resultDiv.textContent = 'No answer key provided for this question';
+                        resultDiv.className = 'result';
+                    }
+                });
+                
+                // Show summary
+                if (Object.keys(answerKey).length > 0) {
+                    resultSummary.textContent = `Score: ${correct}/${total} (${Math.round(correct/total*100)}%)`;
+                    resultSummary.classList.remove('hidden');
+                } else {
+                    resultSummary.textContent = 'No answer key provided for evaluation';
+                    resultSummary.classList.remove('hidden');
+                }
+            });
+            
+            // Reset
+            resetButton.addEventListener('click', () => {
+                questionInput.value = '';
+                answerKeyInput.value = '';
+                questions = [];
+                answerKey = {};
+                questionContainer.innerHTML = '';
+                resultSummary.classList.add('hidden');
+                inputSection.classList.remove('hidden');
+                quizSection.classList.add('hidden');
+            });
+        });
+    </script>
+</body>
+</html>
